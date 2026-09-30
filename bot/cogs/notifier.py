@@ -90,8 +90,9 @@ class Notifier(commands.Cog):
         db.update_settings(guild.id, parties_week=week)
         result = generate_party_sessions(db, cfg, guild.id, now)
         channel = self._channel(db.get_settings(guild.id).notify_channel_id)
-        if channel and (result.created or result.skipped):
+        if channel and (result.created or result.skipped or result.filled):
             lines = [f"🧩 이번 주 고정 파티 일정 {len(result.created)}개를 만들었어요."] + result.created
+            lines += [f"🔧 {s}" for s in result.filled]
             if result.skipped:
                 lines += ["⚠️ 넣지 못한 캐릭터"] + [f"• {s}" for s in result.skipped]
             await channel.send(truncate("\n".join(lines), 2000), allowed_mentions=discord.AllowedMentions.none())

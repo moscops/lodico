@@ -7,13 +7,13 @@ from discord.ext import commands
 
 from ..common import CAT_VIEW, CATEGORIES, is_leader, meta
 
-FAVORITES = ["공대일정", "공대일정수정", "내일정", "가능현황", "로펙"]
+FAVORITES = ["레이드일정", "공대일정수정", "내일정", "공대시간대", "로펙"]
 
 START_GUIDE = (
     "**처음이라면 이 순서로!**\n"
     "① `/캐릭터등록` 캐릭터마다 한 번씩\n"
-    "② `/가능시간대` 평소 되는 시간 한 번만\n"
-    "③ `/공대일정` 으로 확인하고 `/일정참가`"
+    "② `/내시간대` 평소 되는 시간 한 번만\n"
+    "③ `/레이드일정` 으로 확인하고 `/일정참가`"
 )
 
 

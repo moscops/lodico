@@ -88,6 +88,16 @@ def class_short(cls: str) -> str:
     return CLASS_SHORT.get(ALIASES.get(cls, cls), cls[:2])
 
 
+LEVELUP_KEY = "@레벨업"
+LEVELUP_EMOJI = "lodico_levelup"
+LEVELUP_PATH = ROOT / "assets" / "levelup3.png"
+
+
+def levelup_mark() -> str:
+    """레벨 상승 아이콘(/레벨갱신). 못 올렸으면 ⬆️."""
+    return _icons.get(LEVELUP_KEY, "⬆️")
+
+
 def gold_mark() -> str:
     """골드 아이콘. 못 올렸으면 💰."""
     return _icons.get(GOLD_KEY, "💰")
@@ -109,6 +119,7 @@ async def load_class_icons(bot: Any) -> None:
 
     wanted = [(cls, name, ICON_DIR / f"{cls}.png") for cls, name in EMOJI_NAMES.items()]
     wanted.append((GOLD_KEY, GOLD_EMOJI, GOLD_PATH))
+    wanted.append((LEVELUP_KEY, LEVELUP_EMOJI, LEVELUP_PATH))
     wanted += [(stem, level_emoji_name(stem), LEVEL_DIR / f"{stem}.png") for stem in LEVEL_STEMS]
     icons: dict[str, str] = {}
     for key, name, path in wanted:

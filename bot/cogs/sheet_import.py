@@ -14,7 +14,7 @@ from ..lostark_api import ApiError
 from ..render import truncate
 from ..roster import min_raid_level
 from ..services import RuleError, add_to_session, supports_first
-from ..parties import apply_party_inputs, generate_party_sessions, party_emoji
+from ..parties import apply_party_inputs, generate_party_sessions
 from ..sheet import SheetData, build_template, parse_workbook
 from ..timeutil import fmt_dt, now_kst, to_epoch
 from .planning import send_proposals
@@ -87,7 +87,7 @@ def preview_text(cfg, data: SheetData, resolved: Resolved) -> str:
         lines.insert(2, f"🧩 고정 파티 **{len(data.parties)}**개 · 레이드 {total}줄 (요일·시각 지정 {timed}줄) — 기존 고정 파티는 이 내용으로 바뀌어요")
         for p in data.parties[:10]:
             raids = ", ".join(cfg.raids[r.raid_key].name for r in p.rows)
-            lines.insert(3, f"-# 　{party_emoji(p.number)} 파티 {p.number}{' · ' + p.label if p.label else ''}: {raids}")
+            lines.insert(3, f"-# 　파티 {p.number}{' · ' + p.label if p.label else ''}: {raids}")
     for s in data.sessions[:10]:
         lines.append(f"-# 　{fmt_dt(s.start)} {cfg.raids[s.raid_key].name} · {len(s.character_names)}명")
     errors = data.errors + resolved.errors
@@ -185,6 +185,9 @@ async def apply_sheet(interaction: discord.Interaction, data: SheetData, resolve
         if gen.created:
             report.append(f"🗓️ 고정 파티 이번 주 일정 {len(gen.created)}개 생성")
             report += [f"-# 　{line}" for line in gen.created[:10]]
+        if gen.filled:
+            report.append(f"🔧 이미 있던 파티 일정 {len(gen.filled)}개에 파티원을 채웠어요")
+            report += [f"-# 　{line}" for line in gen.filled[:10]]
         errors += gen.skipped
 
     # 4) 일정

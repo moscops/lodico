@@ -7,7 +7,6 @@ from discord.ext import commands
 
 from .sessions import SessionButtons
 from ..common import CAT_LEADER, bot_of, is_leader, leader_only, meta, raid_autocomplete
-from ..parties import party_emoji
 from ..planner import PlanResult, Proposal, propose
 from ..render import truncate
 from ..services import RuleError, SessionView, add_to_session, supports_first
@@ -19,7 +18,7 @@ MAX_PROPOSALS = 20  # 버튼 20개 + 모두 확정/닫기 = 디스코드 한 메
 def proposal_line(i: int, p: Proposal, done: bool = False) -> str:
     who = ", ".join(f"{c.display_name}({c.name})" for c in p.characters)
     mark = "✅ " if done else ""
-    party = f"{party_emoji(p.party_number)} 파티 {p.party_number} · " if p.party_number else ""
+    party = f"파티 {p.party_number} · " if p.party_number else ""
     return (
         f"{mark}**{i}.** {party}{fmt_dt(p.start)} **{p.raid.name}** `{len(p.characters)}/{p.raid.party_size}`\n"
         f"-# 　{who}"
@@ -39,13 +38,13 @@ def plan_text(bot, result: PlanResult, confirmed: set[int]) -> str:
     if result.party_unplaced:
         lines.append(
             "\n⚠️ 파티원 모두 되는 시간을 못 찾은 고정 파티: "
-            + ", ".join(f"{party_emoji(n)} {n}" for n in result.party_unplaced)
+            + ", ".join(f"파티 {n}" for n in result.party_unplaced)
             + " — 파티 시트에 요일·시각을 직접 적거나 가능 시간을 늘려 주세요."
         )
     if result.no_availability:
         lines.append(
             "\n⚠️ 가능 시간 미등록이라 제외: " + ", ".join(result.no_availability)
-            + " — `/가능시간대` 또는 시트로 등록해 주세요."
+            + " — `/내시간대` 또는 시트로 등록해 주세요."
         )
     return truncate("\n".join(lines), 4000)
 

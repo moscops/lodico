@@ -22,7 +22,7 @@ class BotLoadTest(unittest.IsolatedAsyncioTestCase):
 
         cmds = all_commands(bot.tree)
         names = {c.qualified_name for c in cmds}
-        for expected in ["캐릭터등록", "원정대연동", "레벨갱신", "시트양식", "시트가져오기", "시트내보내기", "일정제안", "내일정", "로펙", "레이드 이벤트추가", "레이드 이벤트종료", "가능시간대", "불가", "불가목록", "불가취소", "일정등록", "공대일정수정", "일정완료", "메뉴", "공대일정", "도움", "봇설정", "레이드 수정"]:
+        for expected in ["캐릭터등록", "원정대연동", "레벨갱신", "시트양식", "시트가져오기", "시트내보내기", "일정제안", "내일정", "로펙", "레이드 이벤트추가", "레이드 이벤트종료", "내시간대", "불가", "불가목록", "불가취소", "일정등록", "공대일정수정", "일정완료", "메뉴", "레이드일정", "도움", "봇설정", "레이드 수정"]:
             self.assertIn(expected, names)
         for c in cmds:
             self.assertIn(c.extras.get("category"), CATEGORIES, c.name)
@@ -65,7 +65,7 @@ class MenuActionsTest(unittest.IsolatedAsyncioTestCase):
         cmds = all_commands(bot.tree)
         embed = build_overview_embed(cmds)
         self.assertTrue(embed.fields[0].name.startswith("⭐"))
-        for n in ["공대일정", "공대일정수정", "내일정", "가능현황", "로펙"]:
+        for n in ["레이드일정", "공대일정수정", "내일정", "공대시간대", "로펙"]:
             self.assertIn(f"`/{n}`", embed.fields[0].value)
         for field in embed.fields:
             self.assertLessEqual(len(field.value), 1024)

@@ -60,7 +60,7 @@ class Characters(commands.Cog):
         verb = "등록" if created else "수정"
         text = (
             f"{verb}했어요: {character_line(char)}\n{gold_info}\n"
-            + ("다음 단계: `/가능시간대` 로 평소 가능한 시간을 알려 주세요." if created else "")
+            + ("다음 단계: `/내시간대` 로 평소 가능한 시간을 알려 주세요." if created else "")
         )
         if from_api:
             await interaction.followup.send(text, ephemeral=True)

@@ -57,6 +57,57 @@ class ApplyRosterTest(unittest.TestCase):
         self.assertIn("종막 하드", [r.name for r in change.gold_after])
         self.assertIn("골드 레이드 변경", sync_result_text(result))
 
+    def test_stale_pinned_tier_is_released_when_higher_auto_tier_opens(self):
+        # 1730+ 로 고정해 둔 캐릭터의 레벨이 1750 이 되면 고정을 풀어 1750+ 를 따라간다 (레벨이 같아도 갱신 때 검사)
+        char = self.db.list_characters(self.m.id)[0]
+        self.db.update_character_info(char.id, char.cls, 1750)
+        self.db.set_character_tier(char.id, "1730+")
+        apply_roster(self.db, CFG, self.m.id, [api(char.name, 1750)], 1640)
+        self.assertIsNone(next(c for c in self.db.list_characters(self.m.id) if c.id == char.id).tier)
+
+    def test_same_level_variant_tier_is_kept(self):
+        char = self.db.list_characters(self.m.id)[0]
+        self.db.update_character_info(char.id, char.cls, 1750)
+        self.db.set_character_tier(char.id, "1750+_3")
+        apply_roster(self.db, CFG, self.m.id, [api(char.name, 1750)], 1640)
+        self.assertEqual(next(c for c in self.db.list_characters(self.m.id) if c.id == char.id).tier, "1750+_3")
+
+    def test_level_up_removes_character_from_dropped_raid_sessions(self):
+        # 1725(1720+: 종막 노말·지평의 성당 2단계·4막 하드) → 1731(1730+: 종막 하드…)이 되면 종막 노말은 안 간다
+        from datetime import datetime
+        from bot.timeutil import KST, to_epoch
+        char = next(c for c in self.db.list_characters(self.m.id) if c.name == "본캐")
+        soon = to_epoch(datetime(2026, 10, 3, 21, tzinfo=KST))
+        past = to_epoch(datetime(2026, 9, 1, 21, tzinfo=KST))
+        s_normal = self.db.create_session(1, "final_normal", soon, 1, "")
+        s_past = self.db.create_session(1, "final_normal", past, 1, "")
+        s_keep = self.db.create_session(1, "cathedral_2", soon, 1, "")
+        for s in (s_normal, s_past, s_keep):
+            self.db.add_slot(s.id, char.id)
+        now = datetime(2026, 9, 30, 12, tzinfo=KST)
+        result = apply_roster(self.db, CFG, self.m.id, [api("본캐", 1731), api("부캐", 1700, "워로드")], 1640, now=now)
+        left = lambda s: [c.name for c in self.db.session_characters(s.id)]
+        self.assertEqual(left(s_normal), [])            # 종막 노말 (시작 전) → 빠짐
+        self.assertEqual(left(s_past), ["본캐"])         # 이미 지난 일정은 그대로
+        self.assertEqual(left(s_keep), ["본캐"])         # 계속 가는 레이드는 그대로
+        change = next(c for c in result.changes if c.name == "본캐")
+        self.assertEqual(change.removed_from, ["10/3(토) 종막 노말"])
+        self.assertIn("일정에서 빠짐", sync_result_text(result))
+
+    def test_level_up_removes_character_from_fixed_party_raid(self):
+        char = next(c for c in self.db.list_characters(self.m.id) if c.name == "본캐")
+        other = next(c for c in self.db.list_characters(self.m.id) if c.name == "부캐")
+        self.db.replace_parties(1, [{"number": 1, "label": None, "raids": [
+            {"raid_key": "final_normal", "weekday": 5, "start_min": 21 * 60, "character_ids": [char.id, other.id]},
+            {"raid_key": "cathedral_2", "weekday": 5, "start_min": 22 * 60, "character_ids": [char.id]},
+        ]}])
+        result = apply_roster(self.db, CFG, self.m.id, [api("본캐", 1731), api("부캐", 1700, "워로드")], 1640)
+        raids = {r.raid_key: [c.name for c in r.characters] for r in self.db.list_parties(1)[0].raids}
+        self.assertEqual(raids["final_normal"], ["부캐"])   # 종막 노말 줄에서만 빠짐
+        self.assertEqual(raids["cathedral_2"], ["본캐"])
+        change = next(c for c in result.changes if c.name == "본캐")
+        self.assertIn("고정 파티 1 종막 노말", change.removed_from)
+
     def test_no_change(self):
         roster = [api("본캐", 1725), api("부캐", 1700, "워로드")]
         result = apply_roster(self.db, CFG, self.m.id, roster, 1640)

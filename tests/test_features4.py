@@ -1,4 +1,5 @@
 """이벤트 레이드, 날짜별 가능 명단, /내일정, 고정 일정 메시지."""
+import re
 import unittest
 from datetime import date, datetime
 from unittest import mock
@@ -9,7 +10,10 @@ from bot import board as board_mod
 from bot.board import BoardManager
 from bot.config import ROOT, add_event_raids, load_config
 from bot.db import Database
-from bot.render import lopec_url, my_schedule_text, weekly_availability_text
+from bot.render import (
+    ZWSP, chunk_groups, lopec_url, my_schedule_fields, raid_schedule_groups, team_availability_text, team_characters_text,
+    weekly_availability_text,
+)
 from bot.services import SessionView, build_overview, gold_raids
 from bot.timeutil import KST, to_epoch
 
@@ -79,6 +83,158 @@ class ScheduleViewsTest(unittest.TestCase):
         self.assertTrue(only.startswith("**10/2(금)**"))
         self.assertNotIn("9/30", only)
 
+    def test_team_availability_lists_names_with_fixed_colors(self):
+        self.db.set_availability(self.a.id, 3, 22 * 60, 26 * 60)
+        self.db.set_availability(self.b.id, 3, 21 * 60, 24 * 60)
+        self.db.set_availability(self.a.id, 2, 21 * 60, 26 * 60)
+        names = {m.id: m.display_name for m in self.db.list_members(G)}
+        text = team_availability_text(self.db.list_guild_availability(G), names, kst(2026, 9, 30, 6))
+        plain = re.sub(r"\[[0-9;]*m", "", text)
+        self.assertIn("9/30(수):  철수", plain)
+        self.assertIn("10/1(목):  영희, 철수", plain)      # 이름순, 시간은 안 적는다
+        self.assertNotIn("21:00", plain)
+        self.assertIn("가능 시간 미등록: 민수", plain)
+        self.assertTrue(text.startswith("```ansi"))
+        # 같은 사람은 어느 날짜에서나 같은 색
+        colors = re.findall(r"(\[\d+m)철수", text)
+        self.assertEqual(len(colors), 2)
+        self.assertEqual(colors[0], colors[1])
+
+    def test_team_availability_wraps_long_day_under_first_name(self):
+        for i in range(1, 10):
+            m = self.db.upsert_member(G, 1000 + i, f"더미{i}")
+            self.db.set_availability(m.id, 5, 21 * 60, 26 * 60)   # 토
+        names = {m.id: m.display_name for m in self.db.list_members(G)}
+        text = team_availability_text(self.db.list_guild_availability(G), names, kst(2026, 9, 30, 6))
+        lines = re.sub(r"\x1b\[[0-9;]*m", "", text).splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith("10/3(토):"))
+        self.assertTrue(lines[start].endswith(","))               # 줄 끝 쉼표
+        indent = 11   # 날짜 칸(10칸) + 공백. 한글은 두 칸이라 글자 수가 아니라 표시 폭 기준
+        self.assertTrue(lines[start + 1].startswith(" " * indent + "더미"))   # 다음 줄은 첫 이름 자리에 맞춤
+        self.assertTrue(lines[start + 2].startswith("10/4(일):") or lines[start + 2].startswith(" " * indent))
+        self.assertTrue(all(len(l) <= 60 for l in lines))
+
+    def test_raid_schedule_groups_shared_four_man_raids_under_one_header(self):
+        # 같은 두 사람이 지평의 성당·세르카(4인)를 같이 가면 헤더 코드블록 하나에 두 레이드, 파티원은 한 번만
+        s1 = self.db.create_session(G, "cathedral_3", to_epoch(kst(2026, 10, 2, 21)), 1, "")
+        s2 = self.db.create_session(G, "serka_nightmare", to_epoch(kst(2026, 10, 2, 21)), 1, "")
+        s3 = self.db.create_session(G, "belgardin_normal", to_epoch(kst(2026, 10, 2, 22)), 1, "")   # 8인 레이드
+        s4 = self.db.create_session(G, "serka_hard", to_epoch(kst(2026, 10, 3, 21)), 1, "")
+        for s in (s1, s2, s3):
+            for c in (self.a1, self.b1):
+                self.db.add_slot(s.id, c.id, 1 if s is s3 else None)
+        self.db.add_slot(s4.id, self.b1.id)
+        views = [SessionView(s, CFG.raid(s.raid_key), self.db.session_characters(s.id)) for s in (s1, s2, s3, s4)]
+        notice, groups = raid_schedule_groups(CFG, views, self.now)
+        self.assertEqual(notice, "")
+        self.assertEqual(len(groups), 3)                      # (성당+세르카) · 벨가르딘 · 10/3 세르카
+        strip = lambda t: re.sub(r"\[[0-9;]*m", "", t)
+        first = groups[0]
+        self.assertEqual(len(first), 1)                        # 4인: 한 필드에 헤더와 파티원
+        self.assertEqual(first[0][0], "10/2(금)")              # 날짜는 그날 첫 묶음의 필드 이름
+        value = strip(first[0][1])
+        self.assertIn("지평의 성당 3단계 1750", value)
+        self.assertIn("세르카 나이트메어 1740", value)
+        self.assertEqual(value.count("철수바드"), 1)            # 중복된 파티원은 한 번만
+        self.assertEqual(value.count("영희소서"), 1)
+        self.assertNotIn("(철수)", value)                      # 공대원 이름은 넣지 않는다
+        self.assertIn("철수바드 1745 ➕", value)                # 숫자는 일반 글자, 딜러/서폿 아이콘은 숫자 오른쪽
+        self.assertIn("영희소서 1745 ⚔️", value)                # 소서리스는 딜러 아이콘
+        self.assertNotIn("…", value)                          # 생략 없음
+        self.assertIn("```ansi", first[0][1])
+        self.assertIn("[35m나이트메어", first[0][1])        # 나이트메어는 보라
+        big = groups[1]                                        # 8인 레이드: 헤더 + 1파티 칸
+        self.assertEqual(big[0][0], ZWSP)                        # 구분선은 없다 (날짜는 그날 첫 묶음에만)
+        self.assertIn("벨가르딘 노말 1750", strip(big[0][1]))
+        self.assertEqual([n for n, _, _ in big[1:] if n != ZWSP], ["1파티"])       # 2파티는 비어 있어 이름 없이 비워 둔다
+        self.assertEqual(groups[2][0][0], "10/3(토)")
+        self.assertEqual(raid_schedule_groups(CFG, [], self.now), ("_잡힌 일정이 없어요._", []))
+
+    def test_raid_schedule_puts_a_fixed_party_in_one_block_with_supports_last(self):
+        a2, _ = self.db.upsert_character(self.a.id, "철수딜", "워로드", 1720)
+        b2, _ = self.db.upsert_character(self.b.id, "영희딜", "리퍼", 1721)
+        s1 = self.db.create_session(G, "belgardin_normal", to_epoch(kst(2026, 10, 2, 21)), 1, "파티 1")   # 8인
+        s2 = self.db.create_session(G, "cathedral_3", to_epoch(kst(2026, 10, 2, 21)), 1, "파티 1")        # 4인
+        s3 = self.db.create_session(G, "serka_nightmare", to_epoch(kst(2026, 10, 2, 21)), 1, "파티 1")    # 4인
+        s4 = self.db.create_session(G, "serka_hard", to_epoch(kst(2026, 10, 3, 21)), 1, "")              # 다른 날
+        for c, p in ((self.a1, 1), (a2, 1), (self.b1, 2), (b2, 2)):            # 바드(서폿)를 먼저 넣어 둔다
+            self.db.add_slot(s1.id, c.id, p)
+        for s in (s2, s3):
+            for c in (self.a1, a2, self.b1, b2):
+                self.db.add_slot(s.id, c.id, 1)
+        self.db.add_slot(s4.id, self.b1.id)
+        views = [SessionView(s, CFG.raid(s.raid_key), self.db.session_characters(s.id)) for s in (s1, s2, s3, s4)]
+        party_of = {s1.id: 1, s2.id: 1, s3.id: 1}
+        _, groups = raid_schedule_groups(CFG, views, self.now, party_of)
+        self.assertEqual(len(groups), 2)                                   # 파티 1 묶음 · 10/3 세르카
+        fields = groups[0]
+        strip = lambda t: re.sub(r"\[[0-9;]*m", "", t)
+        self.assertEqual([fields[0][0], fields[0][2]], ["10/2(금)", False])   # 헤더는 한 줄 전체
+        header = strip(fields[0][1])
+        for line in ("벨가르딘 노말 1750", "지평의 성당 3단계 1750", "세르카 나이트메어 1740"):   # 8인·4인 구분 없이 한 코드블록
+            self.assertIn(line, header)
+        self.assertEqual([(n, i) for n, _, i in fields[1:]], [("1파티", True), ("2파티", True), (ZWSP, True)])
+        first, second = strip(fields[1][1]), strip(fields[2][1])
+        self.assertLess(first.index("철수딜"), first.index("철수바드"))      # 서폿(바드)은 파티 맨 아래
+        self.assertIn("영희딜", second)
+        self.assertEqual(first.count("철수바드"), 1)                         # 여러 일정에 든 캐릭터도 한 번만
+        self.assertEqual([groups[1][0][0], groups[1][0][2]], ["10/3(토)", False])
+        # 한 줄 최대 2개: 이어진 칸은 [내용, 내용, 빈 칸] 단위
+        inline = [f for g in groups for f in g if f[2]]
+        self.assertEqual(len(inline) % 3, 0)
+
+    def test_raid_schedule_party_of_only_four_man_raids_has_no_party_columns(self):
+        s1 = self.db.create_session(G, "cathedral_3", to_epoch(kst(2026, 10, 2, 21)), 1, "파티 2")
+        s2 = self.db.create_session(G, "serka_nightmare", to_epoch(kst(2026, 10, 2, 21)), 1, "파티 2")
+        for s in (s1, s2):
+            self.db.add_slot(s.id, self.a1.id)
+        views = [SessionView(s, CFG.raid(s.raid_key), self.db.session_characters(s.id)) for s in (s1, s2)]
+        _, groups = raid_schedule_groups(CFG, views, self.now, {s1.id: 2, s2.id: 2})
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(len(groups[0]), 1)                                # 헤더 + 파티원이 한 필드
+        self.assertIn("철수바드 1745", re.sub(r"\[[0-9;]*m", "", groups[0][0][1]))
+
+    def test_raid_schedule_member_line_puts_level_and_role_icon_right_of_name(self):
+        s = self.db.create_session(G, "belgardin_normal", to_epoch(kst(2026, 10, 2, 22)), 1, "")
+        self.db.add_slot(s.id, self.a1.id, 1)
+        self.db.add_slot(s.id, self.b1.id, 2)
+        view = SessionView(s, CFG.raid(s.raid_key), self.db.session_characters(s.id))
+        _, groups = raid_schedule_groups(CFG, [view], self.now)
+        by_name = {n: v for n, v, _ in groups[0]}
+        self.assertTrue(by_name["1파티"].endswith("철수바드 1745 ➕"))        # 이름 · 레벨 · 역할 아이콘이 한 줄 (앞은 직업 아이콘, 없으면 약칭)
+        self.assertTrue(by_name["2파티"].endswith("영희소서 1745 ⚔️"))
+        self.assertEqual(by_name["1파티"].count("\n"), 0)
+
+    def test_raid_schedule_never_shortens_character_names(self):
+        long_name = "파텍필립사려고대출받은놈입니다"
+        c, _ = self.db.upsert_character(self.a.id, long_name, "바드", 1750)
+        s = self.db.create_session(G, "belgardin_normal", to_epoch(kst(2026, 10, 2, 22)), 1, "")
+        self.db.add_slot(s.id, c.id, 1)
+        view = SessionView(s, CFG.raid(s.raid_key), self.db.session_characters(s.id))
+        _, groups = raid_schedule_groups(CFG, [view], self.now)
+        text = "\n".join(v for g in groups for _, v, _ in g)
+        self.assertIn(long_name, text)
+        self.assertNotIn("…", text)
+
+    def test_chunk_groups_keeps_a_group_together(self):
+        group = [("n", "v" * 10, True)] * 4
+        chunks = chunk_groups([group] * 7, max_fields=24)
+        self.assertEqual([len(c) for c in chunks], [24, 4])    # 6묶음(24필드) + 1묶음
+        small = chunk_groups([group] * 3, max_fields=24, max_chars=50)
+        self.assertTrue(all(len(c) % 4 == 0 for c in small))
+
+    def test_team_characters_lists_raiding_characters_with_member_colors(self):
+        a2, _ = self.db.upsert_character(self.a.id, "철수2", "워로드", 1700)
+        day = date(2026, 10, 2)
+        text = team_characters_text({day: [self.a1, self.b1, a2]}, {m.id: m.display_name for m in self.db.list_members(G)}, kst(2026, 9, 30, 6))
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        self.assertIn("10/2(금):  영희소서, 철수2, 철수바드", plain)   # 공대원 이름순 → 캐릭터 이름순
+        self.assertIn("9/30(수):", plain)
+        colors = dict(re.findall(r"(\x1b\[\d+m)(철수2|철수바드|영희소서)", text)[::-1])
+        by_name = {name: color for color, name in re.findall(r"(\x1b\[\d+m)(철수2|철수바드|영희소서)", text)}
+        self.assertEqual(by_name["철수2"], by_name["철수바드"])        # 같은 공대원 = 같은 색
+        self.assertNotEqual(by_name["철수바드"], by_name["영희소서"])
+
     def test_my_schedule_shows_party_and_remaining(self):
         s = self.db.create_session(G, "serka_nightmare", to_epoch(kst(2026, 10, 2, 21)), 1, "숙련")
         self.db.add_slot(s.id, self.a1.id)
@@ -86,11 +242,24 @@ class ScheduleViewsTest(unittest.TestCase):
         ov = build_overview(self.db, CFG, G, self.now)
         views = [SessionView(s, CFG.raid(s.raid_key), self.db.session_characters(s.id))]
         row = next(m for m in ov.members if m.member_id == self.a.id)
-        text = my_schedule_text(views, self.a.id, [(r.character, r.remaining) for r in row.characters], self.now)
-        self.assertIn("🗓️ **10/2(금) 21:00 세르카 나이트메어** `2/4`", text)
-        self.assertIn("내 캐릭터: **철수바드**", text)
-        self.assertIn("함께: 영희(영희소서)", text)
-        self.assertIn("철수바드: 종막 하드, 지평의 성당 2단계", text)
+        notice, fields = my_schedule_fields(CFG, views, self.a.id, [(r.character, r.remaining) for r in row.characters], self.now)
+        self.assertEqual(notice, "")
+        text = "\n".join(f"{n}\n{v}" for n, v, _ in fields)
+        plain = re.sub(r"\[[0-9;]*m", "", text)  # 색 코드 제거
+        self.assertIn("10/2(금)", plain)
+        self.assertIn("철수바드", plain)
+        self.assertIn("```ansi", text)
+        self.assertIn("세르카 나이트메어 · 1740", plain)
+        self.assertIn("[35m나이트메어", text)  # 나이트메어는 보라
+        self.assertNotIn("#", plain)
+        self.assertNotIn("21:00", plain)
+        self.assertNotIn("영희", plain)
+        self.assertIn("그 외 숙제", plain)
+        self.assertNotIn("📋", plain)
+        self.assertNotIn("📅", plain)
+        self.assertIn("종막 하드 · 1730", plain)
+        self.assertIn("[33m하드", text)  # 하드는 주황
+        self.assertIn("지평의 성당 2단계 · 1720", plain)
 
     def test_lopec_url_encodes_korean(self):
         self.assertEqual(lopec_url("달빛바드"), "https://lopec.kr/character/specPoint/%EB%8B%AC%EB%B9%9B%EB%B0%94%EB%93%9C")

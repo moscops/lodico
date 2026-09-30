@@ -49,13 +49,13 @@ class BoardManager:
         return settings, channel if hasattr(channel, "send") and hasattr(channel, "fetch_message") else None
 
     def embed(self, ov, now) -> discord.Embed:
-        # 고정 메시지에는 일정만 (골드 레이드 요약은 /공대일정 에서)
+        # 고정 메시지에는 일정만 (골드 레이드 요약은 /레이드일정 에서)
         body = overview_text(self.bot.cfg, replace(ov, unassigned_by_raid={}, idle_members=[]))
         embed = discord.Embed(
             title=f"📌 이번 주 공대 일정 ({ov.start.month}/{ov.start.day} ~ {ov.end.month}/{ov.end.day} 06:00)",
             description=body, color=discord.Color.gold(),
         )
-        embed.set_footer(text=f"자동 갱신 {now:%m/%d %H:%M} · 자세히 /공대일정 · 내 일정 /내일정")
+        embed.set_footer(text=f"자동 갱신 {now:%m/%d %H:%M} · 자세히 /레이드일정 · 내 일정 /내일정")
         return embed
 
     async def refresh(self, guild_id: int) -> None:

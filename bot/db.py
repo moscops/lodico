@@ -569,6 +569,24 @@ class Database:
             self._changed(session_id=session_id)
         return cur.rowcount > 0
 
+    def remove_character_from_party_raids(self, character_id: int, raid_keys: set[str]) -> list[tuple[int, str]]:
+        """고정 파티의 해당 레이드 줄에서 캐릭터를 뺀다. 뺀 (파티 번호, 레이드 key) 목록을 돌려준다."""
+        if not raid_keys:
+            return []
+        marks = ",".join("?" * len(raid_keys))
+        rows = self.conn.execute(
+            f"SELECT pr.id, p.number, pr.raid_key FROM party_raid_members pm "
+            f"JOIN party_raids pr ON pr.id = pm.party_raid_id JOIN parties p ON p.id = pr.party_id "
+            f"WHERE pm.character_id = ? AND pr.raid_key IN ({marks}) ORDER BY p.number, pr.position",
+            (character_id, *raid_keys),
+        ).fetchall()
+        for r in rows:
+            self.conn.execute(
+                "DELETE FROM party_raid_members WHERE party_raid_id = ? AND character_id = ?", (r["id"], character_id)
+            )
+        self.conn.commit()
+        return [(r["number"], r["raid_key"]) for r in rows]
+
     def session_characters(self, session_id: int) -> list[Character]:
         rows = self.conn.execute(
             "SELECT c.*, m.discord_id, m.display_name, s.party_no FROM characters c "

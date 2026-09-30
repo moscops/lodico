@@ -316,7 +316,7 @@ def hourly_counts(avail: list[Availability]) -> dict[int, dict[int, set[int]]]:
     return result
 
 
-# ---- /공대일정 집계 ------------------------------------------------------
+# ---- /레이드일정 집계 ------------------------------------------------------
 
 @dataclass
 class SessionView:

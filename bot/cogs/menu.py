@@ -19,10 +19,10 @@ log = logging.getLogger(__name__)
 # 동작 이름 → (버튼 라벨, 스타일, cog 클래스 이름, 명령어 속성 이름, 넘길 인자)
 # 명령어의 원래 함수를 그대로 부르므로 슬래시 명령어와 결과가 같고, 나만보기가 있으면 켠다.
 ACTIONS: dict[str, tuple[str, discord.ButtonStyle, str, str, dict]] = {
-    "schedule": ("📅 공대일정", discord.ButtonStyle.primary, "Sessions", "overview", {"나만보기": True}),
+    "schedule": ("📅 레이드일정", discord.ButtonStyle.primary, "Sessions", "overview", {"나만보기": True}),
     "edit": ("✏️ 일정 수정", discord.ButtonStyle.primary, "SessionEdit", "edit_sessions", {}),
     "mine": ("🗓️ 내 일정", discord.ButtonStyle.success, "Sessions", "my_schedule", {}),
-    "avail": ("🕐 가능현황", discord.ButtonStyle.secondary, "Availability", "overview", {"나만보기": True}),
+    "avail": ("🕐 공대시간대", discord.ButtonStyle.secondary, "Availability", "overview", {"나만보기": True}),
     "lopec": ("🔎 로펙", discord.ButtonStyle.secondary, "Lopec", "lopec", {}),
 }
 
@@ -66,10 +66,10 @@ def menu_embed() -> discord.Embed:
         title="📌 공대 일정 메뉴",
         description="버튼을 누르면 나에게만 보이는 창이 열려요.\n" + "\n".join(
             [
-                "📅 **공대일정** — 이번 주 전체 일정 (파티 색·완료 표시)",
+                "📅 **레이드일정** — 이번 주 전체 일정 (날짜별 캐릭터·레이드, 완료 표시)",
                 "✏️ **일정 수정** — 시각·메모 수정, 완료/미완료 표시, 캐릭터 교체",
                 "🗓️ **내 일정** — 내가 들어간 일정과 남은 숙제",
-                "🕐 **가능현황** — 날짜별로 누가 몇 시에 되는지",
+                "🕐 **공대시간대** — 날짜별로 누가 몇 시에 되는지",
                 "🔎 **로펙** — 내 캐릭터의 로펙 페이지",
             ]
         ),
@@ -86,7 +86,7 @@ class Menu(commands.Cog):
         extras=meta(
             CAT_LEADER,
             "/메뉴",
-            "공대일정·일정 수정·내 일정·가능현황·로펙 버튼이 달린 메시지를 올리고 채널 상단에 고정해요.\n"
+            "레이드일정·일정 수정·내 일정·공대시간대·로펙 버튼이 달린 메시지를 올리고 채널 상단에 고정해요.\n"
             "봇에 '메시지 고정' 권한이 없으면 올리기만 하고 알려 드려요. 옛 메뉴는 직접 지우세요.",
             leader=True,
         ),

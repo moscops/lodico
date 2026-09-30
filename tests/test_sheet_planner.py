@@ -638,9 +638,8 @@ class ClearedAndColorTest(unittest.TestCase):
         self.assertEqual(ov.party_of.get(old.id), 3)
         self.assertNotIn(plain.id, ov.party_of)
         text = overview_text(CFG, ov, self.now)
-        self.assertIn("🟧P3", text)           # 3번 파티 색 + 번호
-        self.assertNotIn("· 파티 3", text)    # 색이 있으니 '파티 N' 메모는 생략
-        self.assertIn("▫️ **22:00", text)     # 파티가 아닌 일정도 같은 자리에 표시
+        self.assertNotIn("🟧", text)          # 파티 색 이모지는 쓰지 않는다
+        self.assertNotIn("· 파티 3", text)    # 파티 일정의 '파티 N' 메모는 생략
         self.assertIn("· 숙련", text)         # 다른 메모는 그대로
 
     def test_manual_done_and_failed(self):
@@ -719,3 +718,69 @@ class PartyRelinkTest(unittest.TestCase):
         self.assertEqual([s.id for s in sessions], [old.id])
         self.assertIsNotNone(db.get_session(old.id).party_raid_id)   # 파티에 연결됨
         self.assertEqual(generate_party_sessions(db, CFG, G, now).created, [])
+
+
+class PartySessionsPerPartyTest(unittest.TestCase):
+    """같은 레이드·같은 시각의 고정 파티는 파티마다 일정을 따로 만들고, 비어 있는 파티 일정은 다시 채운다."""
+
+    def setUp(self):
+        from bot.parties import generate_party_sessions
+        self.generate = generate_party_sessions
+        self.db = Database(":memory:")
+        m1 = self.db.upsert_member(G, 1, "가")
+        m2 = self.db.upsert_member(G, 2, "나")
+        # 두 파티 모두 토요일 21시 벨가르딘 노말 (4인씩). 같은 공대원이 두 파티에 각자 다른 캐릭터로 든다
+        self.a1 = self.db.upsert_character(m1.id, "가1", "바드", 1760)[0]
+        self.a2 = self.db.upsert_character(m1.id, "가2", "워로드", 1755)[0]
+        self.b1 = self.db.upsert_character(m2.id, "나1", "소서리스", 1758)[0]
+        self.b2 = self.db.upsert_character(m2.id, "나2", "리퍼", 1752)[0]
+        raid = lambda ids: {"raid_key": "belgardin_normal", "weekday": 5, "start_min": 21 * 60, "character_ids": ids}
+        self.db.replace_parties(G, [
+            {"number": 1, "label": None, "raids": [raid([self.a1.id, self.b1.id])]},
+            {"number": 2, "label": None, "raids": [raid([self.a2.id, self.b2.id])]},
+        ])
+        self.now = kst(2026, 9, 30, 12)
+
+    def sessions(self):
+        return self.db.list_sessions(G, to_epoch(kst(2026, 9, 30, 6)), to_epoch(kst(2026, 10, 7, 6)))
+
+    def test_each_party_gets_its_own_session(self):
+        gen = self.generate(self.db, CFG, G, self.now)
+        self.assertEqual(len(gen.created), 2)
+        sessions = self.sessions()
+        self.assertEqual(len(sessions), 2)
+        members = sorted(sorted(c.name for c in self.db.session_characters(s.id)) for s in sessions)
+        self.assertEqual(members, [["가1", "나1"], ["가2", "나2"]])
+        self.assertEqual(gen.skipped, [])
+
+    def test_empty_party_session_is_filled_again(self):
+        self.generate(self.db, CFG, G, self.now)
+        for s in self.sessions():                       # 파티원이 빠진 상태로 만들어 둔다
+            for c in self.db.session_characters(s.id):
+                self.db.remove_slot(s.id, c.id)
+        gen = self.generate(self.db, CFG, G, self.now)
+        self.assertEqual(gen.created, [])
+        self.assertEqual(len(gen.filled), 2)
+        self.assertTrue(all(len(self.db.session_characters(s.id)) == 2 for s in self.sessions()))
+        self.assertEqual(self.generate(self.db, CFG, G, self.now).filled, [])   # 다 채워졌으면 그대로
+
+    def test_other_party_members_mixed_into_a_session_are_removed(self):
+        self.generate(self.db, CFG, G, self.now)
+        first = min(self.sessions(), key=lambda s: s.id)     # 파티 1 일정
+        self.db.add_slot(first.id, self.a2.id)               # 파티 2 멤버가 잘못 섞임
+        gen = self.generate(self.db, CFG, G, self.now)
+        self.assertTrue(any("정리" in line for line in gen.filled))
+        self.assertEqual(sorted(c.name for c in self.db.session_characters(first.id)), ["가1", "나1"])
+
+    def test_parties_text_and_generate_report(self):
+        from bot.parties import generate_report, parties_text
+        text = parties_text(self.db, CFG, G)
+        self.assertIn("**파티 1**", text)
+        self.assertIn("**파티 2**", text)
+        self.assertIn("벨가르딘 노말", text)
+        self.assertIn("가(가1)", text)                                # 공대원(캐릭터) 명단
+        self.assertNotIn("🟪", text)
+        self.assertIn("고정 파티가 없어요", parties_text(Database(":memory:"), CFG, G))
+        first = generate_report(self.generate(self.db, CFG, G, self.now))
+        self.assertIn("파티 1 ·", first)
+        self.assertIn("새로 만들거나 채울 일정이 없어요", generate_report(self.generate(self.db, CFG, G, self.now)))

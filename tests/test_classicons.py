@@ -192,8 +192,8 @@ class LoadIconsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("cls_warlord", bot.created)
         self.assertIn(classicons.GOLD_EMOJI, bot.created)
-        # 직업 29개(워로드는 이미 있음) + 골드 1개 + 색 숫자·역할 아이콘
-        self.assertEqual(len(bot.created), len(EMOJI_NAMES) + len(classicons.LEVEL_STEMS))
+        # 직업 29개(워로드는 이미 있음) + 골드·레벨업 2개 + 색 숫자·역할 아이콘
+        self.assertEqual(len(bot.created), len(EMOJI_NAMES) + 1 + len(classicons.LEVEL_STEMS))
         self.assertEqual(class_icon("워로드"), "<:cls_warlord:7>")
         self.assertTrue(classicons.gold_mark().startswith("<:lodico_gold:"))
         self.assertTrue(class_icon("바드").startswith("<:cls_"))

@@ -8,33 +8,17 @@ from discord.ext import commands
 
 from ..common import (
     CAT_INPUT, CAT_LEADER, CAT_START, CAT_VIEW, bot_of, ensure_member, find_guild_character,
-    guild_character_autocomplete, leader_only, meta, my_character_autocomplete,
+    guild_character_autocomplete, is_leader, leader_only, meta, my_character_autocomplete,
     raid_autocomplete, session_autocomplete,
 )
 from ..db import Character, Member, Session
 from ..render import (
-    OverviewCards, member_view_chunks, my_schedule_text, overview_cards, pack_by_limits, participants_block,
+    chunk_groups, member_view_chunks, my_schedule_fields, pack_by_limits, participants_block, raid_schedule_groups,
     session_title, weekly_availability_text,
 )
+from ..parties import generate_party_sessions, generate_report, parties_text
 from ..services import PERIODS, RuleError, SessionView, add_to_session, build_overview, party_count, week_bounds
 from ..timeutil import KST, fmt_date, fmt_dt, from_epoch, now_kst, parse_date, parse_time, to_epoch
-
-
-def _card_embeds(cards: OverviewCards, title: str, footer: str) -> list[discord.Embed]:
-    """일정별 보기: 머리 임베드 + (끝난 일정) + 일정마다 임베드(1파티 왼쪽·2파티 오른쪽) + (골드 남은 캐릭터 등)."""
-    color = discord.Color.gold()
-    embeds = [discord.Embed(title=title, description=cards.notice or None, color=color)]
-    if cards.past:
-        embeds.append(discord.Embed(title="끝난 일정", description=cards.past, color=color))
-    for card in cards.sessions:
-        embed = discord.Embed(title=card.title, description=card.description or None, color=color)
-        for name, value, inline in card.fields:
-            embed.add_field(name=name, value=value, inline=inline)
-        embeds.append(embed)
-    if cards.tail:
-        embeds.append(discord.Embed(description=cards.tail, color=color))
-    embeds[-1].set_footer(text=footer)
-    return embeds
 
 
 def _pack_messages(embeds: list[discord.Embed]) -> list[list[discord.Embed]]:
@@ -365,29 +349,35 @@ class Sessions(commands.Cog):
 
     # ---- 조회 ------------------------------------------------------------
     @app_commands.command(
-        name="공대일정",
-        description="공대 일정을 봅니다 (날짜순 일정별 보기 / 공대원별로 캐릭터 묶어 보기)",
+        name="레이드일정",
+        description="공대 전체의 레이드 일정을 봅니다 (날짜별 캐릭터·레이드 / 공대원별 보기)",
         extras=meta(
             CAT_START,
-            "/공대일정  ·  /공대일정 기간:금  ·  /공대일정 기간:오늘  ·  /공대일정 보기:공대원별",
-            "기본은 일정별 보기예요: 날짜순 일정 목록과 인원 현황(6/8)을 보여 줘요.\n"
+            "/레이드일정  ·  /레이드일정 기간:금  ·  /레이드일정 보기:공대원별  ·  /레이드일정 보기:고정파티  ·  (공대장) /레이드일정 보기:고정파티생성",
+            "기본은 날짜별 보기예요: 날짜마다 레이드 이름·난이도·입장 레벨을 코드블록으로, 그 아래에 파티원(직업 아이콘·레벨)을 보여 줘요. "
+            "8인 레이드는 1파티가 왼쪽·2파티가 오른쪽이고, 같은 파티원이 함께 가는 4인 레이드(지평의 성당·세르카 등)는 한 블록에 묶어요.\n"
             "보기:공대원별 은 공대원마다 캐릭터를 묶고, 캐릭터별로 잡힌 일정과 아직 안 잡힌 골드 레이드를 보여 줘요. "
             "내 캐릭터가 맨 위에 와요.\n"
-            "기간에 요일(월~일)을 고르면 이번 주 그 요일의 공대 일정만 봐요.\n"
+            "기간에 요일(월~일)을 고르면 이번 주 그 요일의 일정만 봐요.\n"
             "보기:가능시간 은 이번 주 날짜별로 누가 몇 시에 되는지 보여 줘요.\n"
+            "보기:고정파티 는 고정 파티(파티별 레이드·요일·시각·파티원)를 보여 줘요. 고정 파티는 [일정] 시트로 정하고, 요일·시각이 있는 레이드는 "
+            "매주 리셋 때 일정이 자동으로 생겨요. 시간 미정인 레이드는 `/일정제안` 에서 파티원이 모두 되는 시간으로 이어서 제안돼요.\n"
+            "(공대장) 보기:고정파티생성 은 이번 주 고정 파티 일정을 지금 만들고, 빠진 파티원을 채워요 (보통은 리셋 때 자동).\n"
             "이번 주는 수요일 06:00 리셋 기준. 기본은 채널에 모두 보이게 올리고, 나만보기:True 면 나만 봐요.",
         ),
     )
     @app_commands.describe(
-        기간="이번주(기본) / 오늘 / 요일 — 요일은 이번 주 그 날", 보기="일정별(기본) / 공대원별 / 가능시간",
+        기간="이번주(기본) / 오늘 / 요일 — 요일은 이번 주 그 날", 보기="날짜별(기본) / 공대원별 / 가능시간 / 고정파티 / 고정파티생성(공대장)",
         레이드="특정 레이드만", 나만보기="나에게만 보이게 (기본: 채널에 공개)",
     )
     @app_commands.choices(
         기간=[app_commands.Choice(name=p if len(p) > 1 else f"{p}요일", value=p) for p in PERIODS],
         보기=[
-            app_commands.Choice(name="일정별", value="session"),
+            app_commands.Choice(name="날짜별", value="session"),
             app_commands.Choice(name="공대원별", value="member"),
             app_commands.Choice(name="가능시간 (날짜별 누가 되는지)", value="availability"),
+            app_commands.Choice(name="고정파티 (파티별 레이드·파티원)", value="party"),
+            app_commands.Choice(name="고정파티생성 (공대장: 이번 주 일정 만들기)", value="party_generate"),
         ],
     )
     @app_commands.autocomplete(레이드=raid_autocomplete)
@@ -401,13 +391,32 @@ class Sessions(commands.Cog):
         bot = bot_of(interaction)
         period = 기간.value if 기간 else "이번주"
         mode = 보기.value if 보기 else "session"
+        if mode == "party":
+            # 고정 파티의 틀 (기간·레이드 옵션과 무관)
+            embed = discord.Embed(
+                title="🧩 고정 파티", description=parties_text(bot.db, bot.cfg, interaction.guild_id or 0),
+                color=discord.Color.purple(),
+            )
+            embed.set_footer(text="수정은 시트로 (/시트양식 → /시트가져오기) · 이번 주 일정 만들기: 보기:고정파티생성")
+            await interaction.response.send_message(embed=embed, ephemeral=나만보기)
+            return
+        if mode == "party_generate":
+            if not is_leader(interaction):
+                raise app_commands.CheckFailure(
+                    "고정 파티 일정 만들기는 공대장만 할 수 있어요. (서버 관리 권한 또는 `/봇설정 공대장역할` 로 지정된 역할)"
+                )
+            result = generate_party_sessions(
+                bot.db, bot.cfg, interaction.guild_id or 0, now_kst(), interaction.user.id
+            )
+            await interaction.response.send_message(generate_report(result), ephemeral=True)
+            return
         if 레이드 and bot.cfg.raid(레이드) is None:
             raise RuleError("목록에서 레이드를 골라 주세요.")
         ov = build_overview(bot.db, bot.cfg, interaction.guild_id or 0, now_kst(), period, 레이드)
         if not ov.single_day:
-            title = f"이번 주 공대 일정 ({ov.start.month}/{ov.start.day} ~ {ov.end.month}/{ov.end.day} 06:00)"
+            title = f"이번 주 레이드 일정 ({ov.start.month}/{ov.start.day} ~ {ov.end.month}/{ov.end.day} 06:00)"
         else:
-            title = ("오늘 · " if period == "오늘" else "") + f"{fmt_date(ov.start.date())} 공대 일정"
+            title = ("오늘 · " if period == "오늘" else "") + f"{fmt_date(ov.start.date())} 레이드 일정"
         if 레이드:
             title += f" · {bot.cfg.raids[레이드].name}"
 
@@ -420,18 +429,28 @@ class Sessions(commands.Cog):
                 bot.db.list_guild_availability(guild_id), names, week_start, only,
                 blocked=bot.db.list_guild_unavailable(guild_id, to_epoch(week_start)),
             )]
-            title = title.replace("공대 일정", "공대 가능 시간")
-            footer = "등록/수정: /가능시간대 · 시간별 인원 표: /가능현황 보기:표"
+            title = title.replace("레이드 일정", "공대 가능 시간")
+            footer = "등록/수정: /내시간대 · 시간별 인원 표: /공대시간대 보기:표"
         elif mode == "session":
             chunks = []
-            footer = "✅ 끝난 일정  ❌ 미완료  ·  참가: /일정참가"
+            footer = ""
         else:
             chunks = member_view_chunks(ov, interaction.user.id, cfg=bot.cfg)
             title += " · 공대원별"
-            footer = "✅ 끝난 일정  🗓️ 예정  미정 = 아직 안 잡힌 숙제 수  ·  일정별로 보기: /공대일정"
+            footer = "✅ 끝난 일정  🗓️ 예정  미정 = 아직 안 잡힌 숙제 수  ·  날짜별로 보기: /레이드일정"
 
         if mode == "session":
-            messages = _pack_messages(_card_embeds(overview_cards(bot.cfg, ov, now_kst()), title, footer))
+            notice, groups = raid_schedule_groups(bot.cfg, ov.sessions, now_kst(), ov.party_of)
+            color = discord.Color.gold()
+            embeds = []
+            for i, chunk in enumerate(chunk_groups(groups) or [[]]):
+                embed = discord.Embed(
+                    title=title if i == 0 else None, description=notice if i == 0 and notice else None, color=color
+                )
+                for name, value, inline in chunk:
+                    embed.add_field(name=name, value=value, inline=inline)
+                embeds.append(embed)
+            messages = _pack_messages(embeds)
         else:
             embeds = []
             for i, chunk in enumerate(chunks):
@@ -450,12 +469,12 @@ class Sessions(commands.Cog):
 
     @app_commands.command(
         name="내일정",
-        description="내가 들어간 일정(함께하는 공대원 포함)과 아직 안 잡힌 골드 레이드를 봅니다",
+        description="내가 들어간 일정과 그 외 숙제(아직 안 잡힌 골드 레이드)를 봅니다",
         extras=meta(
             CAT_VIEW,
             "/내일정",
-            "이번 주와 다음 주에 내 캐릭터가 들어간 일정을 시간순으로, 같은 파티 공대원과 함께 보여 줘요. "
-            "이번 주 골드 레이드 중 아직 안 잡힌 것도 캐릭터별로 알려 줘요.",
+            "이번 주와 다음 주에 내 캐릭터가 들어간 일정을 시간순으로, 날짜별·캐릭터별로 보여 줘요. "
+            "이번 주 골드 레이드 중 아직 안 잡힌 것은 '그 외 숙제'로 알려 줘요.",
         ),
     )
     async def my_schedule(self, interaction: discord.Interaction):
@@ -471,12 +490,14 @@ class Sessions(commands.Cog):
         mine = [v for v in views if any(c.member_id == member.id for c in v.characters)]
         row = next((m for m in ov.members if m.member_id == member.id), None)
         remaining = [(r.character, r.remaining) for r in row.characters if r.remaining] if row else []
+        notice, fields = my_schedule_fields(bot.cfg, mine, member.id, remaining, now)
         embed = discord.Embed(
             title=f"{member.display_name} 님의 일정 ({ov.start.month}/{ov.start.day}~)",
-            description=my_schedule_text(mine, member.id, remaining, now),
+            description=notice or None,
             color=discord.Color.gold(),
         )
-        embed.set_footer(text="✅ 끝난 일정  🗓️ 예정  ·  참가: /일정참가  ·  빠지기: /일정빠지기")
+        for name, value, inline in fields:
+            embed.add_field(name=name, value=value, inline=inline)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

@@ -20,7 +20,7 @@ from .timeutil import ParseError
 log = logging.getLogger("raidbot")
 
 COGS = [
-    "characters", "lostark", "lopec", "availability", "unavailable", "sessions", "session_edit", "menu", "planning", "party_view", "sheet_import", "sheet_export", "raids",
+    "characters", "lostark", "lopec", "availability", "unavailable", "sessions", "session_edit", "menu", "planning", "sheet_import", "sheet_export", "raids",
     "help",
     "admin", "notifier",
 ]

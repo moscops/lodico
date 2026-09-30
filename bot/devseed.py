@@ -1,6 +1,6 @@
 """테스트용 더미 공대원을 DB 에 넣고 지우는 개발 도구.
 
-디스코드 계정 없이 매칭·`/공대일정`·`/일정제안` 을 시험해 볼 수 있다. 더미의 discord_id 는 실제 유저가
+디스코드 계정 없이 매칭·`/레이드일정`·`/일정제안` 을 시험해 볼 수 있다. 더미의 discord_id 는 실제 유저가
 가질 수 없는 큰 값이라 진짜 공대원과 섞이지 않고, `remove` 로 더미만 깔끔히 지워진다.
 
     python -m bot.devseed add --guild <서버ID> [--count 8]
@@ -74,7 +74,7 @@ def main() -> None:
     db = Database(Path(env("DB_PATH", str(ROOT / "data" / "bot.db"))))
     if args.action == "add":
         print("\n".join(add_dummies(db, args.guild, args.count)))
-        print(f"\n더미 {args.count}명을 넣었어요. /공대일정, /가능현황, /일정제안 으로 확인하세요.")
+        print(f"\n더미 {args.count}명을 넣었어요. /레이드일정, /공대시간대, /일정제안 으로 확인하세요.")
     elif args.action == "remove":
         print(f"더미 {remove_dummies(db, args.guild)}명을 지웠어요.")
     else:
