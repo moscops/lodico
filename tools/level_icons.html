@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<!--
+  아이템 레벨용 색 숫자 이모지(0~9, 소수점)와 역할 아이콘(딜러=빨강 검, 서폿=초록 +)을 캔버스로 그린다.
+  디스코드는 글자 색을 못 입혀서 숫자를 이미지로 만든다. 결과는 out 요소에 JSON({파일이름: dataURL}) 으로 남는다.
+  실행: chrome-headless-shell --no-sandbox --disable-gpu --virtual-time-budget=3000 --dump-dom tools/level_icons.html
+  (그 출력을 tools/save_level_icons.py 가 assets/levels/*.png 로 저장)
+-->
+<pre id="out"></pre>
+<script>
+const RED = ["#ff8a70", "#ff5a4d", "#c8322a"];     // 밝은 곳, 기본, 어두운 곳 (딜러)
+const GREEN = ["#8af0a4", "#3ddc6e", "#22a04a"];   // (서폿)
+const OUTLINE = "rgba(12, 12, 16, 0.85)";
+const out = {};
+function canvas(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+function gradient(x, tones, y0, y1) {
+  const g = x.createLinearGradient(0, y0, 0, y1);
+  g.addColorStop(0, tones[0]); g.addColorStop(0.5, tones[1]); g.addColorStop(1, tones[2]);
+  return g;
+}
+
+// 숫자: 위아래 그라데이션 + 어두운 테두리 (게임 UI 느낌, 어느 테마 배경에서도 읽히게)
+function glyph(text, tones, w, h) {
+  const c = canvas(w, h), x = c.getContext("2d");
+  x.font = '800 104px "Noto Sans CJK KR", "DejaVu Sans", sans-serif';
+  x.textAlign = "center"; x.textBaseline = "alphabetic"; x.lineJoin = "round";
+  const baseline = h / 2 + 38;
+  x.lineWidth = 12; x.strokeStyle = OUTLINE; x.strokeText(text, w / 2, baseline);
+  x.fillStyle = gradient(x, tones, baseline - 76, baseline); x.fillText(text, w / 2, baseline);
+  return c.toDataURL("image/png");
+}
+for (const [tag, tones] of [["r", RED], ["g", GREEN]]) {
+  for (const d of "0123456789") out[`digit_${tag}${d}`] = glyph(d, tones, 68, 128);
+  out[`digit_${tag}dot`] = glyph(".", tones, 32, 128);
+}
+
+function icon(draw) {
+  const c = canvas(128, 128), x = c.getContext("2d");
+  x.lineCap = "round"; x.lineJoin = "round";
+  draw(x);
+  return c.toDataURL("image/png");
+}
+function outlined(x, tones, y0, y1) {
+  x.lineWidth = 8; x.strokeStyle = OUTLINE; x.stroke();
+  x.fillStyle = gradient(x, tones, y0, y1); x.fill();
+}
+// 서폿: 초록 + (둥근 십자, 어두운 테두리)
+out.role_support = icon(x => {
+  const a = 22, r = 12, lo = 14, hi = 114;          // 팔 굵기 절반, 모서리 반지름, 시작/끝
+  x.beginPath();
+  x.moveTo(64 - a + r, lo); x.arcTo(64 + a, lo, 64 + a, lo + r, r);
+  x.lineTo(64 + a, 64 - a); x.lineTo(hi - r, 64 - a); x.arcTo(hi, 64 - a, hi, 64 - a + r, r);
+  x.lineTo(hi, 64 + a - r); x.arcTo(hi, 64 + a, hi - r, 64 + a, r);
+  x.lineTo(64 + a, 64 + a); x.lineTo(64 + a, hi - r); x.arcTo(64 + a, hi, 64 + a - r, hi, r);
+  x.lineTo(64 - a + r, hi); x.arcTo(64 - a, hi, 64 - a, hi - r, r);
+  x.lineTo(64 - a, 64 + a); x.lineTo(lo + r, 64 + a); x.arcTo(lo, 64 + a, lo, 64 + a - r, r);
+  x.lineTo(lo, 64 - a + r); x.arcTo(lo, 64 - a, lo + r, 64 - a, r);
+  x.lineTo(64 - a, 64 - a); x.lineTo(64 - a, lo + r); x.arcTo(64 - a, lo, 64 - a + r, lo, r);
+  x.closePath();
+  outlined(x, GREEN, lo, hi);
+});
+// 딜러: 사선으로 기울어진 빨강 검 한 자루 (칼끝이 오른쪽 위)
+out.role_dealer = icon(x => {
+  x.translate(64, 64); x.rotate(Math.PI / 4);
+  // 칼날 (끝이 뾰족)
+  x.beginPath(); x.moveTo(0, -60); x.lineTo(11, -44); x.lineTo(11, 14); x.lineTo(-11, 14); x.lineTo(-11, -44); x.closePath();
+  outlined(x, RED, -60, 14);
+  // 칼날 가운데 홈(하이라이트)
+  x.beginPath(); x.moveTo(0, -46); x.lineTo(0, 10);
+  x.lineWidth = 4; x.strokeStyle = "rgba(255,255,255,0.55)"; x.stroke();
+  // 날밑
+  x.beginPath(); x.roundRect(-30, 14, 60, 14, 6); outlined(x, RED, 14, 28);
+  // 손잡이 + 꼭지
+  x.beginPath(); x.roundRect(-7, 28, 14, 26, 4); outlined(x, RED, 28, 54);
+  x.beginPath(); x.arc(0, 60, 9, 0, Math.PI * 2); outlined(x, RED, 51, 69);
+});
+
+document.getElementById("out").textContent = JSON.stringify(out);
+</script>

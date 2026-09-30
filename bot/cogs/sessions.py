@@ -13,11 +13,33 @@ from ..common import (
 )
 from ..db import Character, Member, Session
 from ..render import (
-    member_view_chunks, my_schedule_text, overview_text, participants_block, session_title,
-    weekly_availability_text,
+    OverviewCards, member_view_chunks, my_schedule_text, overview_cards, pack_by_limits, participants_block,
+    session_title, weekly_availability_text,
 )
 from ..services import PERIODS, RuleError, SessionView, add_to_session, build_overview, party_count, week_bounds
 from ..timeutil import KST, fmt_date, fmt_dt, from_epoch, now_kst, parse_date, parse_time, to_epoch
+
+
+def _card_embeds(cards: OverviewCards, title: str, footer: str) -> list[discord.Embed]:
+    """일정별 보기: 머리 임베드 + (끝난 일정) + 일정마다 임베드(1파티 왼쪽·2파티 오른쪽) + (골드 남은 캐릭터 등)."""
+    color = discord.Color.gold()
+    embeds = [discord.Embed(title=title, description=cards.notice or None, color=color)]
+    if cards.past:
+        embeds.append(discord.Embed(title="끝난 일정", description=cards.past, color=color))
+    for card in cards.sessions:
+        embed = discord.Embed(title=card.title, description=card.description or None, color=color)
+        for name, value, inline in card.fields:
+            embed.add_field(name=name, value=value, inline=inline)
+        embeds.append(embed)
+    if cards.tail:
+        embeds.append(discord.Embed(description=cards.tail, color=color))
+    embeds[-1].set_footer(text=footer)
+    return embeds
+
+
+def _pack_messages(embeds: list[discord.Embed]) -> list[list[discord.Embed]]:
+    """메시지 하나에 임베드 10개·글자 합계 6000자 제한이 있어서 나눠 담는다."""
+    return [[embeds[i] for i in group] for group in pack_by_limits([len(e) for e in embeds])]
 
 
 def _load_session(interaction: discord.Interaction, session_id: int) -> Session:
@@ -401,26 +423,30 @@ class Sessions(commands.Cog):
             title = title.replace("공대 일정", "공대 가능 시간")
             footer = "등록/수정: /가능시간대 · 시간별 인원 표: /가능현황 보기:표"
         elif mode == "session":
-            chunks = [overview_text(bot.cfg, ov)]
-            footer = "✅ 끝난 일정  🟢 정원 참  ⏳ 모집 중  🛡️ 서폿  ·  참가: /일정참가"
+            chunks = []
+            footer = "✅ 끝난 일정  ❌ 미완료  ·  참가: /일정참가"
         else:
             chunks = member_view_chunks(ov, interaction.user.id, cfg=bot.cfg)
             title += " · 공대원별"
             footer = "✅ 끝난 일정  🗓️ 예정  미정 = 아직 안 잡힌 숙제 수  ·  일정별로 보기: /공대일정"
 
-        embeds = []
-        for i, chunk in enumerate(chunks):
-            embed = discord.Embed(
-                title=title if i == 0 else f"{title} ({i + 1}/{len(chunks)})",
-                description=chunk, color=discord.Color.gold(),
-            )
-            if i == len(chunks) - 1:
-                embed.set_footer(text=footer)
-            embeds.append(embed)
+        if mode == "session":
+            messages = _pack_messages(_card_embeds(overview_cards(bot.cfg, ov, now_kst()), title, footer))
+        else:
+            embeds = []
+            for i, chunk in enumerate(chunks):
+                embed = discord.Embed(
+                    title=title if i == 0 else f"{title} ({i + 1}/{len(chunks)})",
+                    description=chunk, color=discord.Color.gold(),
+                )
+                if i == len(chunks) - 1:
+                    embed.set_footer(text=footer)
+                embeds.append(embed)
+            messages = [[e] for e in embeds]
         # 메시지 하나당 임베드 합계 6000자 제한이 있어, 넘치는 부분은 이어지는 메시지로 보낸다
-        await interaction.response.send_message(embed=embeds[0], ephemeral=나만보기)
-        for embed in embeds[1:]:
-            await interaction.followup.send(embed=embed, ephemeral=나만보기)
+        await interaction.response.send_message(embeds=messages[0], ephemeral=나만보기)
+        for group in messages[1:]:
+            await interaction.followup.send(embeds=group, ephemeral=나만보기)
 
     @app_commands.command(
         name="내일정",

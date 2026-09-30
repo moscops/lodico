@@ -295,7 +295,7 @@ class SupportCompositionTest(unittest.TestCase):
         members = self.db.session_characters(s.id)
         self.assertEqual(composition_warnings(CFG, CFG.raid(s.raid_key), members), ["서폿 없음 (딜러 4명)"])
         v = SessionView(s, CFG.raid(s.raid_key), members)
-        self.assertIn("-# 　⚠️ 서폿 없음 (딜러 4명)", party_lines(CFG, v))
+        self.assertIn("-# ⚠️ 서폿 없음 (딜러 4명)", party_lines(CFG, v))
 
     def test_eight_person_raid_splits_supports_into_two_parties(self):
         from bot.render import party_lines
@@ -311,8 +311,10 @@ class SupportCompositionTest(unittest.TestCase):
             self.assertEqual(sum(CFG.is_support(c.cls) for c in party), 1)
         self.assertEqual(composition_warnings(CFG, CFG.raid(s.raid_key), members), [])
         lines = party_lines(CFG, SessionView(s, CFG.raid(s.raid_key), members))
-        self.assertTrue(lines[0].startswith("　1파티: ") and lines[1].startswith("　2파티: "))
-        self.assertIn("🛡️", lines[0])
+        self.assertEqual(lines[0], "```ansi")
+        self.assertTrue("1파티" in lines[1] and "2파티" in lines[1])
+        self.assertLess(lines[1].index("1파티"), lines[1].index("2파티"))
+        self.assertNotIn("🛡️", "\n".join(lines))
 
     def test_three_dealers_and_empty_slot_is_fine(self):
         from bot.services import composition_warnings

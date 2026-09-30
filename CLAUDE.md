@@ -48,7 +48,7 @@ copy .env.example .env        # DISCORD_TOKEN 등은 직접 채운다 (아래 '�
 
 ### 배포 요령 (Windows PowerShell 5.1 에서 검증된 방식)
 
-1. `tar --exclude=.venv --exclude=data --exclude=__pycache__ --exclude=.env -czf raidbot.tgz bot tests config.toml requirements.txt README.md deploy .env.example`
+1. `tar --exclude=.venv --exclude=data --exclude=__pycache__ --exclude=.env -czf raidbot.tgz bot tests assets config.toml requirements.txt README.md deploy .env.example`
 2. `scp`/`ssh` 는 PATH 에 없을 수 있어 `C:\Windows\System32\OpenSSH\ssh.exe` 전체 경로로 부른다. 키 권한은 `icacls`로 본인만 읽기.
 3. 서버에서 여러 줄 명령은 **스크립트 파일을 scp 로 올려 `bash 파일`** 로 실행한다(따옴표 문제, PowerShell 5.1 이 stdin 에 BOM 을 붙이는 문제 회피).
 4. 순서: DB 백업 → 압축 해제(`.env`·`data` 는 tgz 에 없어 유지) → `chmod +x deploy/backup.sh`(압축을 풀면 실행 권한이 사라져 cron 백업이 깨진다) → `pip install -r` → 서버에서 테스트 → `sudo systemctl restart raidbot` → 로그에 `로그인:` 확인.

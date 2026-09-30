@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from itertools import groupby
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
+from .classicons import char_head, class_icon, class_short, gold_mark, level_text, role_icon
 from .config import Config, Raid
 from .db import Availability, Character, Session, Unavailable
 from .services import (
@@ -31,7 +34,7 @@ def lopec_url(name: str) -> str:
 
 def character_line(c: Character, with_owner: bool = False) -> str:
     owner = f" — {c.display_name}" if with_owner and c.display_name else ""
-    return f"**{c.name}** {c.cls} {c.item_level:g}{owner}"
+    return f"{char_head(c.cls, f'**{c.name}**')} {c.item_level:g}{owner}"
 
 
 def gold(n: int) -> str:
@@ -41,7 +44,7 @@ def gold(n: int) -> str:
 def gold_summary_text(s: GoldSummary) -> str:
     """클골 합계와 더보기를 전부 했을 때 남는 골드."""
     return (
-        f"💰 주간 클골 **{gold(s.gold)}** (거래 {gold(s.tradable)} · 귀속 {gold(s.bound)})\n"
+        f"{gold_mark()} 주간 클골 **{gold(s.gold)}** (거래 {gold(s.tradable)} · 귀속 {gold(s.bound)})\n"
         f"➕ 더보기 전부: **−{gold(s.more_cost)}** → 남는 골드 **{gold(s.after)}** "
         f"(거래 {gold(s.tradable_after)} · 귀속 {gold(s.bound_after)})\n"
         "-# 더보기 비용은 귀속 골드가 있는 레이드는 귀속에서, 없으면 거래 가능 골드에서 빠져요"
@@ -62,7 +65,7 @@ def character_plan_text(chars: list[Character], plan: dict[int, list[Raid] | Hom
         if raids:
             all_gold += raids
             s = gold_summary(raids)
-            lines.append(f"💰 {character_line(c)}{tier} · {gold(s.gold)} (더보기 −{s.more_cost / 1000:g}k)")
+            lines.append(f"{gold_mark()} {character_line(c)}{tier} · {gold(s.gold)} (더보기 −{s.more_cost / 1000:g}k)")
             names = [f"{r.name} {r.gold / 1000:g}k" for r in raids] + [f"{r.name} (골드X)" for r in extra]
             lines.append("-# 　" + " · ".join(names))
         else:
@@ -115,7 +118,10 @@ def participants_block(chars: list[Character], mention: bool = False) -> str:
     lines = []
     for c in chars:
         who = f"<@{c.discord_id}>" if mention and c.discord_id else (c.display_name or "?")
-        lines.append(f"• {who} — {c.name} ({c.cls} {c.item_level:g})")
+        if class_icon(c.cls):
+            lines.append(f"• {who} — {char_head(c.cls, c.name)} ({c.item_level:g})")
+        else:
+            lines.append(f"• {who} — {c.name} ({c.cls} {c.item_level:g})")
     return "\n".join(lines)
 
 
@@ -129,8 +135,27 @@ def party_tag(number: int | None) -> str:
     return f"{PARTY_EMOJI[(number - 1) % len(PARTY_EMOJI)]}P{number} "
 
 
+def _tail_lines(cfg: Config, ov: Overview) -> list[str]:
+    """일정 아래에 붙는 '골드 레이드 남은 캐릭터'와 '일정 없는 공대원' (하루 보기에서는 없음)."""
+    lines: list[str] = []
+    if ov.single_day:
+        return lines
+    if ov.unassigned_by_raid:
+        lines.append("### 골드 레이드 남은 캐릭터")
+        limit = 30 if len(ov.unassigned_by_raid) == 1 else 6
+        for key, chars in ov.unassigned_by_raid.items():
+            raid = cfg.raids[key]
+            names = ", ".join(_member_label(c) for c in chars[:limit])
+            more = f" 외 {len(chars) - limit}" if len(chars) > limit else ""
+            lines.append(f"• {raid.name} **{len(chars)}**: {names}{more}")
+    if ov.idle_members:
+        lines.append("### 이번 주 일정 없는 공대원")
+        lines.append(", ".join(ov.idle_members))
+    return lines
+
+
 def overview_text(cfg: Config, ov: Overview, now: datetime | None = None) -> str:
-    """일정별 보기. ✅ 끝난 일정(취소선) · 🟢 정원 참 · ⏳ 모집 중."""
+    """일정별 보기. ✅ 끝난 일정(취소선) · ❌ 미완료. 예정 일정은 상태 아이콘 없이 파티 색만 붙는다."""
     now = now or datetime.now(KST)
     lines: list[str] = []
     if not ov.sessions:
@@ -142,7 +167,6 @@ def overview_text(cfg: Config, ov: Overview, now: datetime | None = None) -> str
         for v in views:
             s = v.session
             name = v.raid.name if v.raid else s.raid_key
-            full = v.raid and len(v.characters) >= v.raid.party_size
             tag = party_tag(ov.party_of.get(s.id))
             # 파티 일정의 메모는 '파티 N' 이 대부분이라 색·번호 표시와 겹치니 생략한다
             memo = f" · {s.memo}" if s.memo and not (s.id in ov.party_of and PARTY_MEMO_RE.fullmatch(s.memo)) else ""
@@ -152,24 +176,13 @@ def overview_text(cfg: Config, ov: Overview, now: datetime | None = None) -> str
             if session_done(v, now):
                 lines.append(f"✅ {tag}~~{from_epoch(s.start_at):%H:%M} {name}~~ `{v.filled}` #{s.id}")
                 continue
-            mark = "🟢" if full else "⏳"
-            lines.append(f"{mark} {tag}**{from_epoch(s.start_at):%H:%M} {name}** `{v.filled}` #{s.id}{memo}")
+            lines.append(f"{tag}**{from_epoch(s.start_at):%H:%M} {name}** `{v.filled}` #{s.id}{memo}")
             lines += party_lines(cfg, v)
 
-    if not ov.single_day:
-        if ov.unassigned_by_raid:
-            lines.append("### 골드 레이드 남은 캐릭터")
-            limit = 30 if len(ov.unassigned_by_raid) == 1 else 6
-            for key, chars in ov.unassigned_by_raid.items():
-                raid = cfg.raids[key]
-                names = ", ".join(f"{c.display_name}({c.name})" for c in chars[:limit])
-                more = f" 외 {len(chars) - limit}" if len(chars) > limit else ""
-                lines.append(f"• {raid.name} **{len(chars)}**: {names}{more}")
-        if ov.idle_members:
-            lines.append("### 이번 주 일정 없는 공대원")
-            lines.append(", ".join(ov.idle_members))
+    lines += _tail_lines(cfg, ov)
 
-    return truncate("\n".join(lines), 4000)
+    text = truncate("\n".join(lines), 4000)
+    return text + "\n```" if text.count("```") % 2 else text
 
 
 def session_failed(v: SessionView) -> bool:
@@ -213,7 +226,7 @@ def member_view_chunks(
             c = row.character
             pending = f" · 미정 {len(row.remaining)}" if row.remaining and not day_view else ""
             # 캐릭터 이름을 누르면 로펙 페이지가 열린다
-            lines.append(f"**[{c.name}]({lopec_url(c.name)})** {c.cls} {c.item_level:g}{pending}")
+            lines.append(f"{char_head(c.cls, f'**[{c.name}]({lopec_url(c.name)})**')} {c.item_level:g}{pending}")
             for v in row.sessions:
                 name = v.raid.name if v.raid else v.session.raid_key
                 when = f"{from_epoch(v.session.start_at):%H:%M}" if day_view else fmt_dt(from_epoch(v.session.start_at))
@@ -241,29 +254,214 @@ def member_view_chunks(
     return chunks
 
 
-def _member_label(cfg: Config, c: Character) -> str:
-    mark = "🛡️" if cfg.is_support(c.cls) else ""
-    return f"{c.display_name}({c.name}{mark})"
+def _member_label(c: Character) -> str:
+    """'공대원(아이콘 캐릭터)'. 서폿/딜러는 아이콘 색(초록/빨강)으로 구분한다."""
+    name = f"{class_icon(c.cls)} {c.name}" if class_icon(c.cls) else c.name
+    return f"{c.display_name}({name})"
+
+
+# 파티 표(ANSI 코드블록). 코드블록 안에는 커스텀 이모지를 못 쓰므로 직업은 두 글자 약칭으로 적고,
+# 아이템 레벨만 색을 입힌다 (딜러 빨강 / 서폿 초록). 색은 PC·웹 디스코드에서만 보인다.
+COL_WIDTH = 27       # 한 열의 폭(칸). 한글·전각은 2칸
+COL_GAP = " | "
+LABEL_WIDTH = 4      # 직업 약칭 (두 글자 = 4칸)
+MEMBER_MAX = 6       # 괄호 안 공대원 이름 최대 폭
+ANSI_RESET, ANSI_BOLD = "\u001b[0m", "\u001b[1m"
+ANSI_DEALER, ANSI_SUPPORT = "\u001b[31m", "\u001b[32m"
+
+
+def _width(text: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def _pad(text: str, width: int) -> str:
+    return text + " " * max(0, width - _width(text))
+
+
+def _fit(text: str, limit: int) -> str:
+    """표시 폭이 limit 칸을 넘으면 …로 줄인다."""
+    if _width(text) <= limit:
+        return text
+    out, used = "", 0
+    for ch in text:
+        w = _width(ch)
+        if used + w > limit - 1:
+            break
+        out, used = out + ch, used + w
+    return out + "…"
+
+
+def _party_cell(cfg: Config, c: Character, level_width: int) -> str:
+    """'브커 풍월문(이동현) 1784' 한 칸 (폭 COL_WIDTH 고정). 길면 이름을 …로 줄여 열이 밀리지 않게 한다."""
+    name_width = COL_WIDTH - LABEL_WIDTH - 1 - 1 - level_width
+    member = _fit(c.display_name or "?", MEMBER_MAX)
+    char = _fit(c.name, max(2, name_width - _width(member) - 2))
+    level = f"{c.item_level:g}".rjust(level_width)
+    color = ANSI_SUPPORT if cfg.is_support(c.cls) else ANSI_DEALER
+    label = _pad(class_short(c.cls), LABEL_WIDTH)
+    return f"{label} {_pad(f'{char}({member})', name_width)} {color}{level}{ANSI_RESET}"
+
+
+def _party_header(text: str) -> str:
+    return f"{ANSI_BOLD}{_pad(text, COL_WIDTH)}{ANSI_RESET}"
+
+
+def _party_rows(cells: list[list[str]], headers: list[str]) -> list[str]:
+    """열(파티)들을 나란히 놓는다. 빈 칸은 공백으로 채워 오른쪽 열 위치를 맞춘다."""
+    rows = [COL_GAP.join(_party_header(h) for h in headers).rstrip()]
+    blank = " " * COL_WIDTH
+    for i in range(max(len(col) for col in cells)):
+        row = COL_GAP.join(col[i] if i < len(col) else blank for col in cells)
+        rows.append(row.rstrip())
+    return rows
+
+
+# ── 일정별 보기(임베드 카드) ─────────────────────────────────────────────────────
+# 일정 하나 = 임베드 하나. 제목은 일정 정보, 필드는 1파티(왼쪽)·2파티(오른쪽). 필드 한 칸이 좁아서
+# 멤버마다 두 줄로 쓴다: ① 직업 아이콘 캐릭명(공대원)  ② 역할 아이콘 + 색 숫자 레벨.
+ZWSP = "\u200b"           # 디스코드 필드는 이름·값이 비면 안 돼서 빈 칸용으로 쓴다
+FIELD_TEXT_CELLS = 16    # 첫 줄 '캐릭명(공대원)' 최대 폭(칸). 한글 8글자쯤
+MEMBER_CELLS = 6         # 그중 괄호 안 공대원 이름 최대 폭
+EMBED_CHARS_PER_MESSAGE = 5800   # 디스코드 한도는 6000자 (임베드 글자 합계)
+EMBEDS_PER_MESSAGE = 10
+
+
+@dataclass(frozen=True)
+class SessionCard:
+    title: str
+    description: str
+    fields: tuple[tuple[str, str, bool], ...]  # (이름, 값, 나란히 놓기)
+
+
+@dataclass(frozen=True)
+class OverviewCards:
+    notice: str                       # 일정이 하나도 없을 때 안내
+    past: str                         # 끝난·미완료 일정 요약 (없으면 "")
+    sessions: tuple[SessionCard, ...]  # 앞으로 할 일정
+    tail: str                         # 골드 레이드 남은 캐릭터 · 일정 없는 공대원 (없으면 "")
+
+
+def _member_head(c: Character) -> str:
+    """'직업아이콘 캐릭명(공대원)'. 이름이 길면 …로 줄여 두 열의 모양이 같게 한다. 아이콘이 없으면 직업 약칭."""
+    member = _fit(c.display_name or "?", MEMBER_CELLS)
+    char = _fit(c.name, max(4, FIELD_TEXT_CELLS - _width(member) - 2))
+    return f"{class_icon(c.cls) or class_short(c.cls)} {char}({member})"
+
+
+def _member_level(cfg: Config, c: Character) -> str:
+    support = cfg.is_support(c.cls)
+    return f"{role_icon(support)}{level_text(c.item_level, support)}"
+
+
+def _column_value(cfg: Config, chars: list[Character]) -> str:
+    """좁은 칸용: 멤버마다 두 줄."""
+    if not chars:
+        return ZWSP
+    value = "\n".join(f"{_member_head(c)}\n{_member_level(cfg, c)}" for c in chars)
+    return truncate(value, 1024)
+
+
+def _wide_value(cfg: Config, chars: list[Character]) -> str:
+    """넓은 칸(한 줄 전체)용: 멤버마다 한 줄."""
+    return truncate("\n".join(f"{_member_head(c)} {_member_level(cfg, c)}" for c in chars), 1024)
+
+
+def _party_fields(cfg: Config, v: SessionView) -> list[tuple[str, str, bool]]:
+    n = party_count(v.raid)
+    if n == 1:
+        return [("참가자", _wide_value(cfg, v.characters), False)]
+    fields: list[tuple[str, str, bool]] = []
+    for first in range(1, n + 1, 2):
+        pair = [p for p in (first, first + 1) if p <= n]
+        members = {p: [c for c in v.characters if c.party_no == p] for p in pair}
+        if not any(members.values()):
+            continue
+        fields += [(f"{p}파티", _column_value(cfg, members[p]), True) for p in pair]
+        if len(pair) == 2:
+            fields.append((ZWSP, ZWSP, True))  # 한 줄에 3칸까지라 빈 칸으로 다음 파티를 아래 줄로 보낸다
+    rest = [c for c in v.characters if not c.party_no or c.party_no > n]
+    if rest:
+        fields.append(("파티 미정", _wide_value(cfg, rest), False))
+    return fields
+
+
+def _session_title(ov: Overview, v: SessionView) -> str:
+    s = v.session
+    name = v.raid.name if v.raid else s.raid_key
+    party = ov.party_of.get(s.id)
+    tag = party_tag(party) if party else ""
+    return f"{tag}{fmt_dt(from_epoch(s.start_at))} {name} · {v.filled} · #{s.id}"
+
+
+def _session_notes(cfg: Config, ov: Overview, v: SessionView) -> str:
+    s = v.session
+    notes = []
+    # 파티 일정의 메모는 '파티 N' 이 대부분이라 색·번호 표시와 겹치니 생략한다
+    if s.memo and not (s.id in ov.party_of and PARTY_MEMO_RE.fullmatch(s.memo)):
+        notes.append(s.memo)
+    notes += [f"⚠️ {w}" for w in composition_warnings(cfg, v.raid, v.characters)]
+    return "\n".join(notes)
+
+
+def overview_cards(cfg: Config, ov: Overview, now: datetime | None = None) -> OverviewCards:
+    """일정별 보기를 임베드로 만들 재료. 디스코드 객체 없이 문자열만 돌려준다."""
+    now = now or datetime.now(KST)
+    past, upcoming = [], []
+    for v in ov.sessions:
+        s = v.session
+        name = v.raid.name if v.raid else s.raid_key
+        tag = party_tag(ov.party_of.get(s.id)) if ov.party_of.get(s.id) else ""
+        when = fmt_dt(from_epoch(s.start_at))
+        if session_failed(v):
+            past.append(f"❌ {tag}~~{when} {name}~~ `{v.filled}` #{s.id} **미완료**")
+        elif session_done(v, now):
+            past.append(f"✅ {tag}~~{when} {name}~~ `{v.filled}` #{s.id}")
+        else:
+            upcoming.append(SessionCard(
+                title=_session_title(ov, v),
+                description=_session_notes(cfg, ov, v),
+                fields=tuple(_party_fields(cfg, v)) if v.characters else (),
+            ))
+    notice = "" if ov.sessions else "_등록된 일정이 없어요. 공대장이 `/일정등록` 으로 추가할 수 있어요._"
+    return OverviewCards(notice, "\n".join(past), tuple(upcoming), "\n".join(_tail_lines(cfg, ov)))
+
+
+def pack_by_limits(sizes: list[int], max_chars: int = EMBED_CHARS_PER_MESSAGE, max_items: int = EMBEDS_PER_MESSAGE) -> list[list[int]]:
+    """임베드를 메시지에 나눠 담는다 (메시지당 글자 합계·개수 한도). 순서를 지키고, 혼자 한도를 넘는 것은 단독 메시지."""
+    groups: list[list[int]] = []
+    used = 0
+    for i, size in enumerate(sizes):
+        if groups and used + size <= max_chars and len(groups[-1]) < max_items:
+            groups[-1].append(i)
+            used += size
+        else:
+            groups.append([i])
+            used = size
+    return groups
 
 
 def party_lines(cfg: Config, v: SessionView) -> list[str]:
-    """참가자를 파티(4명)별로. 8인 이상이면 '1파티: …' 로 나누고, 서폿 구성 경고를 붙인다. 🛡️ = 서폿"""
+    """참가자를 파티(4명)별로. 8인 이상이면 1파티는 왼쪽, 2파티는 오른쪽 (3·4파티는 그 아래 줄). 서폿 구성 경고를 붙인다."""
     if not v.characters:
         return []
+    level_width = max(len(f"{c.item_level:g}") for c in v.characters)
+    cell = lambda c: _party_cell(cfg, c, level_width)  # noqa: E731
     n = party_count(v.raid)
-    out = []
+    rows: list[str] = []
     if n == 1:
-        out.append("　" + ", ".join(_member_label(cfg, c) for c in v.characters))
+        rows = [cell(c) for c in v.characters]
     else:
-        for p in range(1, n + 1):
-            party = [c for c in v.characters if c.party_no == p]
-            if party:
-                out.append(f"　{p}파티: " + ", ".join(_member_label(cfg, c) for c in party))
-        rest = [c for c in v.characters if not c.party_no or c.party_no > n]
+        parties = {p: [cell(c) for c in v.characters if c.party_no == p] for p in range(1, n + 1)}
+        for p in range(1, n + 1, 2):
+            group = [p, p + 1] if p + 1 <= n else [p]
+            if any(parties[q] for q in group):
+                rows += _party_rows([parties[q] for q in group], [f"{q}파티" for q in group])
+        rest = [cell(c) for c in v.characters if not c.party_no or c.party_no > n]
         if rest:
-            out.append("　파티 미정: " + ", ".join(_member_label(cfg, c) for c in rest))
+            rows += _party_rows([rest], ["파티 미정"])
+    out = ["```ansi", *rows, "```"]
     for w in composition_warnings(cfg, v.raid, v.characters):
-        out.append(f"-# 　⚠️ {w}")
+        out.append(f"-# ⚠️ {w}")
     return out
 
 
@@ -448,19 +646,19 @@ def sync_result_text(result: "SyncResult", owner: str | None = None) -> str:
     lines = []
     for c in result.changes:
         if c.old_level is None:
-            head = f"🆕 {prefix}**{c.name}** {c.cls} {c.new_level:g} 추가"
+            head = f"🆕 {prefix}{char_head(c.cls, f'**{c.name}**')} {c.new_level:g} 추가"
         elif c.old_level != c.new_level:
             arrow = "⬆️" if c.new_level > c.old_level else "⬇️"
             head = f"{arrow} {prefix}**{c.name}** {c.old_level:g} → **{c.new_level:g}**"
         else:
             head = f"🔁 {prefix}**{c.name}** {c.new_level:g}"
         if c.gold_changed and not c.gold_after:
-            head += "\n-# 　💰 골드 획득 해제 (원정대 아이템 레벨 상위 캐릭터에서 밀려남)"
+            head += f"\n-# 　{gold_mark()} 골드 획득 해제 (원정대 아이템 레벨 상위 캐릭터에서 밀려남)"
         elif c.gold_changed:
             added = [r.name for r in c.gold_after if r not in c.gold_before]
             removed = [r.name for r in c.gold_before if r not in c.gold_after]
             parts = [f"+{n}" for n in added] + [f"−{n}" for n in removed]
-            head += f"\n-# 　💰 골드 레이드 변경: {' '.join(parts) or '순서 변경'}"
+            head += f"\n-# 　{gold_mark()} 골드 레이드 변경: {' '.join(parts) or '순서 변경'}"
         lines.append(head)
     if result.missing:
         lines.append(

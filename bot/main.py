@@ -9,6 +9,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from .board import BoardManager
+from .classicons import load_class_icons
 from .config import ROOT, Config, add_event_raids, apply_overrides, env, load_config
 from .db import Database
 from .gsheet import ExportError
@@ -67,6 +68,7 @@ class RaidBot(commands.Bot):
     async def setup_hook(self) -> None:
         for name in COGS:
             await self.load_extension(f"bot.cogs.{name}")
+        await load_class_icons(self)
         # 명령어는 '서버 전용' 또는 '전역' 한쪽에만 등록한다. 양쪽에 남아 있으면 / 목록에 두 번씩 보인다.
         if self.dev_guild_id:
             # 개발용: 특정 서버에만 즉시 반영 (전역 등록은 반영까지 시간이 걸릴 수 있음)
