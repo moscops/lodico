@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+
+# 비밀·개인 데이터: 절대 올리지 않는다
+.env
+data/
+*.db
+*.db.gz
+*.pem
+*.key
+*credentials*.json
+*service-account*.json
+google-key*.json
+
+# 배포용 임시 묶음
+*.tgz
+
+# 로컬 도구 설정
+.claude/settings.local.json

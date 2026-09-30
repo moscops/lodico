@@ -1,0 +1,24 @@
+[Unit]
+Description=Lost Ark raid scheduling Discord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/raidbot
+ExecStart=/home/ubuntu/raidbot/.venv/bin/python -m bot
+# 죽거나 오류로 끝나면 10초 뒤 다시 시작 (재부팅 후에도 enable 해 두면 자동 시작)
+Restart=always
+RestartSec=10
+# 로그를 한 줄씩 바로 journald 로 보낸다
+Environment=PYTHONUNBUFFERED=1
+
+# 최소 권한: 봇 폴더 밖은 읽기 전용, 임시 폴더 분리
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/raidbot/data
+
+[Install]
+WantedBy=multi-user.target

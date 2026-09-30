@@ -1,0 +1,347 @@
+# 게임 규칙 값. 패치로 바뀔 수 있으니 업데이트 때마다 확인하세요.
+# 봇을 재시작하면 반영됩니다.
+# 기준: 2026-09 (벨가르딘 출시 이후). 출처: 로아로골 주간 골드 계산기, 나무위키, 인벤
+
+[game]
+# 주간 리셋: 수요일(2 = 월0 기준) 06:00 KST
+reset_weekday = 2
+reset_hour = 6
+# 아래 레이드 값을 마지막으로 확인한 날짜. 값을 고치면 같이 바꿔 주세요 (/레이드 목록 에 표시됨)
+data_updated = "2026-09-29"
+# 원정대에서 골드를 받는 캐릭터 수 (아이템 레벨 상위 N개 자동 지정)
+gold_characters = 6
+# 캐릭터 하나가 골드를 받을 수 있는 주간 레이드 수
+gold_raids_per_character = 3
+# 서포터 직업 (파티 4명마다 1명). 줄임말로 등록한 캐릭터도 알아보도록 줄임말도 같이 적는다
+support_classes = ["바드", "홀리나이트", "홀나", "도화가", "도화", "발키리", "발키"]
+
+[defaults]
+# 서버별 /봇설정 으로 덮어쓸 수 있는 기본값
+morning_time = "09:00"
+reminder_minutes = 30
+# 일정을 만들 때 시각을 비우면 쓰는 기본 시작 시각 (나중에 /일정수정 으로 바꾸세요)
+default_start = "21:00"
+# 레이드에 duration_minutes 가 없을 때 쓰는 예상 소요 시간 (시간 겹침 판단용)
+raid_duration_minutes = 60
+
+[lostark_api]
+# 공식 API 키는 .env 의 LOSTARK_API_KEY 에 넣으세요. 없으면 자동 갱신 기능이 꺼집니다.
+# /원정대연동 한 공대원의 아이템 레벨을 몇 시간마다 자동 갱신할지
+sync_interval_hours = 6
+# 자동 갱신 때 원정대에 새로 입장 레벨(가장 낮은 레이드 기준)을 넘긴 캐릭터를 자동 추가할지
+auto_add_new = true
+
+# key       : 명령어와 DB에 쓰이는 고유값 (한 번 정하면 바꾸지 마세요)
+# group     : 같은 레이드의 난이도 묶음. 같은 group 은 캐릭터당 주 1회 (난이도 중 하나만)
+# name      : 표시 이름
+# party_size: 4, 8, 16
+# min_item_level: 입장 레벨
+# gold      : 클리어 골드 합계 (전 관문, 더보기 제외)
+# bound_gold: 그중 귀속 골드. 골드가 같으면 거래 가능 골드가 많은 쪽을 우선 추천
+# more_cost : 전 관문 더보기 비용 합. 귀속 골드가 있는 레이드는 귀속에서, 없으면 거래 가능 골드에서 빠진다
+#
+# ※ 카제로스 1막/2막 익스트림은 기간 한정 콘텐츠라 넣지 않았습니다. 필요하면 추가하세요.
+
+# ---- 그림자 레이드 ----------------------------------------------------------
+[[raids]]
+key = "belgardin_nightmare"
+group = "belgardin"
+name = "벨가르딘 나이트메어"
+party_size = 8
+min_item_level = 1780
+gold = 75000
+bound_gold = 0
+more_cost = 24000
+
+[[raids]]
+key = "belgardin_hard"
+group = "belgardin"
+name = "벨가르딘 하드"
+party_size = 8
+min_item_level = 1770
+gold = 62000
+bound_gold = 0
+more_cost = 19840
+
+[[raids]]
+key = "belgardin_normal"
+group = "belgardin"
+name = "벨가르딘 노말"
+party_size = 8
+min_item_level = 1750
+gold = 50000
+bound_gold = 0
+more_cost = 16000
+
+[[raids]]
+key = "serka_nightmare"
+group = "serka"
+name = "세르카 나이트메어"
+party_size = 4
+min_item_level = 1740
+gold = 54000
+bound_gold = 0
+more_cost = 17280
+
+[[raids]]
+key = "serka_hard"
+group = "serka"
+name = "세르카 하드"
+party_size = 4
+min_item_level = 1730
+gold = 44000
+bound_gold = 0
+more_cost = 14080
+
+[[raids]]
+key = "serka_normal"
+group = "serka"
+name = "세르카 노말"
+party_size = 4
+min_item_level = 1710
+gold = 32000
+bound_gold = 16000
+more_cost = 10240
+
+# ---- 어비스 던전 ------------------------------------------------------------
+[[raids]]
+key = "cathedral_3"
+group = "cathedral"
+name = "지평의 성당 3단계"
+party_size = 4
+min_item_level = 1750
+gold = 50000
+bound_gold = 50000
+more_cost = 16000
+
+[[raids]]
+key = "cathedral_2"
+group = "cathedral"
+name = "지평의 성당 2단계"
+party_size = 4
+min_item_level = 1720
+gold = 40000
+bound_gold = 40000
+more_cost = 12800
+
+[[raids]]
+key = "cathedral_1"
+group = "cathedral"
+name = "지평의 성당 1단계"
+party_size = 4
+min_item_level = 1700
+gold = 30000
+bound_gold = 30000
+more_cost = 9600
+
+# ---- 카제로스 레이드 --------------------------------------------------------
+[[raids]]
+key = "final_hard"
+group = "kazeros_final"
+name = "종막 하드"
+party_size = 8
+min_item_level = 1730
+gold = 48000
+bound_gold = 0
+more_cost = 15360
+
+[[raids]]
+key = "final_normal"
+group = "kazeros_final"
+name = "종막 노말"
+party_size = 8
+min_item_level = 1710
+gold = 32000
+bound_gold = 16000
+more_cost = 10240
+
+[[raids]]
+key = "act4_hard"
+group = "kazeros_act4"
+name = "4막 하드"
+party_size = 8
+min_item_level = 1720
+gold = 38000
+bound_gold = 0
+more_cost = 12160
+
+[[raids]]
+key = "act4_normal"
+group = "kazeros_act4"
+name = "4막 노말"
+party_size = 8
+min_item_level = 1700
+gold = 27000
+bound_gold = 13500
+more_cost = 8640
+
+[[raids]]
+key = "act3_hard"
+group = "kazeros_act3"
+name = "3막 하드"
+party_size = 8
+min_item_level = 1700
+gold = 27000
+bound_gold = 13500
+more_cost = 8350
+duration_minutes = 90
+
+[[raids]]
+key = "act3_normal"
+group = "kazeros_act3"
+name = "3막 노말"
+party_size = 8
+min_item_level = 1680
+gold = 21000
+bound_gold = 10500
+more_cost = 7010
+duration_minutes = 90
+
+[[raids]]
+key = "act2_hard"
+group = "kazeros_act2"
+name = "2막 하드"
+party_size = 8
+min_item_level = 1690
+gold = 23000
+bound_gold = 11500
+more_cost = 7500
+
+[[raids]]
+key = "act2_normal"
+group = "kazeros_act2"
+name = "2막 노말"
+party_size = 8
+min_item_level = 1670
+gold = 16500
+bound_gold = 8250
+more_cost = 5540
+
+[[raids]]
+key = "act1_hard"
+group = "kazeros_act1"
+name = "1막 하드"
+party_size = 8
+min_item_level = 1680
+gold = 18000
+bound_gold = 9000
+more_cost = 5970
+
+[[raids]]
+key = "act1_normal"
+group = "kazeros_act1"
+name = "1막 노말"
+party_size = 8
+min_item_level = 1660
+gold = 11500
+bound_gold = 5750
+more_cost = 2530
+
+[[raids]]
+key = "prologue"
+group = "kazeros_prologue"
+name = "서막 에키드나"
+party_size = 8
+min_item_level = 1640
+gold = 7200
+bound_gold = 3600
+more_cost = 2350
+
+# ---- 에픽 레이드 ------------------------------------------------------------
+[[raids]]
+key = "behemoth"
+group = "behemoth"
+name = "베히모스"
+party_size = 16
+min_item_level = 1640
+gold = 7200
+bound_gold = 3600
+more_cost = 2350
+
+# ---- 숙제 구간 ---------------------------------------------------------------
+# 캐릭터마다 구간(label)을 정하면 그 구간의 레이드가 그 캐릭터의 주간 숙제가 된다.
+# raids   : 골드를 받는 레이드 (최대 3개)
+# no_gold : 골드 없이 추가로 도는 레이드 (선택)
+# auto    : 구간을 따로 안 정한 캐릭터는 auto = true 인 구간 중 아이템 레벨에 맞는 가장 높은 구간을 쓴다
+# min_level 은 그 구간의 레이드를 모두 들어갈 수 있는 레벨이어야 한다.
+# 공대 시트 '레이드 숙제' 아래 표를 옮긴 것. 구간을 더 만들거나 고쳐도 된다 (/레이드 새로고침 으로 반영)
+
+[[tiers]]
+label = "1780+"
+min_level = 1780
+auto = true
+raids = ["belgardin_nightmare", "cathedral_3", "serka_nightmare"]
+
+[[tiers]]
+label = "1780+_2"
+min_level = 1770
+raids = ["belgardin_hard", "cathedral_3", "serka_nightmare"]
+
+[[tiers]]
+label = "1770+"
+min_level = 1770
+auto = true
+raids = ["belgardin_hard", "cathedral_3", "serka_nightmare"]
+
+[[tiers]]
+label = "1750+"
+min_level = 1750
+auto = true
+raids = ["belgardin_normal", "cathedral_3", "serka_nightmare"]
+
+[[tiers]]
+label = "1750+_2"
+min_level = 1750
+raids = ["belgardin_normal", "cathedral_3", "serka_nightmare"]
+no_gold = "act4_hard"
+
+[[tiers]]
+label = "1750+_3"
+min_level = 1750
+raids = ["belgardin_normal", "cathedral_3", "serka_hard"]
+
+[[tiers]]
+label = "1730+"
+min_level = 1730
+auto = true
+raids = ["final_hard", "cathedral_2", "serka_hard"]
+
+[[tiers]]
+label = "1730+_2"
+min_level = 1730
+raids = ["final_hard", "serka_hard", "act4_hard"]
+no_gold = "cathedral_2"
+
+[[tiers]]
+label = "1730+_3"
+min_level = 1730
+raids = ["final_hard", "cathedral_2", "serka_hard"]
+no_gold = "act4_hard"
+
+[[tiers]]
+label = "1720+"
+min_level = 1720
+auto = true
+raids = ["final_normal", "cathedral_2", "act4_hard"]
+
+[[tiers]]
+label = "1720+_2"
+min_level = 1720
+raids = ["final_normal", "cathedral_2", "act4_hard"]
+no_gold = "serka_normal"
+
+[[tiers]]
+label = "1720+_3"
+min_level = 1720
+raids = ["final_normal", "serka_normal", "act4_hard"]
+
+[[tiers]]
+label = "1710+"
+min_level = 1710
+auto = true
+raids = ["final_normal", "cathedral_1", "serka_normal"]
+
+[[tiers]]
+label = "1710+_2"
+min_level = 1710
+raids = ["final_normal", "serka_normal", "act4_normal"]
